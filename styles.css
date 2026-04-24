@@ -188,6 +188,13 @@ body::before {
   background: rgba(217, 104, 88, 0.18);
 }
 
+.scan-note {
+  margin: 14px 2px 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+
 .field {
   display: grid;
   gap: 8px;

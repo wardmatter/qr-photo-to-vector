@@ -19,6 +19,16 @@ const downloadPngButton = document.querySelector("#downloadPngButton");
 let currentSvgMarkup = "";
 
 const QR_LIBS_TIMEOUT_MS = 8000;
+const MAX_SCAN_DIMENSION = 1200;
+const SCAN_ANGLES = [0, -12, 12, -24, 24, -35, 35];
+const SCAN_VARIANTS = [
+  { name: "raw", mode: "raw" },
+  { name: "boosted contrast", mode: "contrast", amount: 1.35 },
+  { name: "high contrast", mode: "contrast", amount: 1.7 },
+  { name: "adaptive threshold", mode: "threshold", shift: 0 },
+  { name: "lighter threshold", mode: "threshold", shift: -20 },
+  { name: "darker threshold", mode: "threshold", shift: 20 },
+];
 
 function setStatus(message, tone = "neutral") {
   statusBanner.textContent = message;
@@ -72,28 +82,203 @@ function loadImage(dataUrl) {
   });
 }
 
-function extractQrFromImage(image) {
+function createCanvas(width, height) {
   const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(width));
+  canvas.height = Math.max(1, Math.round(height));
+  return canvas;
+}
+
+function createBaseCanvas(image) {
+  const sourceWidth = image.naturalWidth || image.width;
+  const sourceHeight = image.naturalHeight || image.height;
+  const maxDimension = Math.max(sourceWidth, sourceHeight);
+  const scale = maxDimension > MAX_SCAN_DIMENSION ? MAX_SCAN_DIMENSION / maxDimension : 1;
+  const canvas = createCanvas(sourceWidth * scale, sourceHeight * scale);
   const context = canvas.getContext("2d", { willReadFrequently: true });
 
   if (!context) {
     throw new Error("Canvas is unavailable in this browser.");
   }
 
-  canvas.width = image.naturalWidth || image.width;
-  canvas.height = image.naturalHeight || image.height;
-  context.drawImage(image, 0, 0);
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
 
-  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-  const result = window.jsQR(imageData.data, imageData.width, imageData.height, {
-    inversionAttempts: "attemptBoth",
-  });
-
-  if (!result?.data) {
-    throw new Error("No readable QR code was found in that photo.");
+function rotateCanvas(sourceCanvas, angleDegrees) {
+  if (angleDegrees === 0) {
+    return sourceCanvas;
   }
 
-  return result.data;
+  const radians = (angleDegrees * Math.PI) / 180;
+  const sin = Math.abs(Math.sin(radians));
+  const cos = Math.abs(Math.cos(radians));
+  const width = sourceCanvas.width;
+  const height = sourceCanvas.height;
+  const rotatedCanvas = createCanvas(width * cos + height * sin, width * sin + height * cos);
+  const context = rotatedCanvas.getContext("2d", { willReadFrequently: true });
+
+  if (!context) {
+    throw new Error("Canvas is unavailable in this browser.");
+  }
+
+  context.translate(rotatedCanvas.width / 2, rotatedCanvas.height / 2);
+  context.rotate(radians);
+  context.drawImage(sourceCanvas, -width / 2, -height / 2);
+  return rotatedCanvas;
+}
+
+function getCanvasImageData(canvas) {
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) {
+    throw new Error("Canvas is unavailable in this browser.");
+  }
+
+  return context.getImageData(0, 0, canvas.width, canvas.height);
+}
+
+function buildLuminanceHistogram(imageData) {
+  const histogram = new Array(256).fill(0);
+  const luminance = new Uint8ClampedArray(imageData.width * imageData.height);
+  const data = imageData.data;
+
+  for (let sourceIndex = 0, luminanceIndex = 0; sourceIndex < data.length; sourceIndex += 4, luminanceIndex += 1) {
+    const value = Math.round(data[sourceIndex] * 0.299 + data[sourceIndex + 1] * 0.587 + data[sourceIndex + 2] * 0.114);
+    luminance[luminanceIndex] = value;
+    histogram[value] += 1;
+  }
+
+  return { histogram, luminance };
+}
+
+function getOtsuThreshold(histogram, totalPixels) {
+  let sum = 0;
+  for (let index = 0; index < histogram.length; index += 1) {
+    sum += index * histogram[index];
+  }
+
+  let sumBackground = 0;
+  let weightBackground = 0;
+  let bestVariance = -1;
+  let threshold = 127;
+
+  for (let index = 0; index < histogram.length; index += 1) {
+    weightBackground += histogram[index];
+    if (weightBackground === 0) {
+      continue;
+    }
+
+    const weightForeground = totalPixels - weightBackground;
+    if (weightForeground === 0) {
+      break;
+    }
+
+    sumBackground += index * histogram[index];
+    const meanBackground = sumBackground / weightBackground;
+    const meanForeground = (sum - sumBackground) / weightForeground;
+    const betweenVariance = weightBackground * weightForeground * (meanBackground - meanForeground) ** 2;
+
+    if (betweenVariance > bestVariance) {
+      bestVariance = betweenVariance;
+      threshold = index;
+    }
+  }
+
+  return threshold;
+}
+
+function cloneImageData(imageData) {
+  return new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+}
+
+function applyVariant(imageData, variant) {
+  if (variant.mode === "raw") {
+    return cloneImageData(imageData);
+  }
+
+  const output = cloneImageData(imageData);
+  const { histogram, luminance } = buildLuminanceHistogram(imageData);
+  const data = output.data;
+
+  if (variant.mode === "contrast") {
+    for (let sourceIndex = 0, luminanceIndex = 0; sourceIndex < data.length; sourceIndex += 4, luminanceIndex += 1) {
+      const value = Math.max(0, Math.min(255, (luminance[luminanceIndex] - 128) * variant.amount + 128));
+      data[sourceIndex] = value;
+      data[sourceIndex + 1] = value;
+      data[sourceIndex + 2] = value;
+    }
+
+    return output;
+  }
+
+  if (variant.mode === "threshold") {
+    const threshold = Math.max(0, Math.min(255, getOtsuThreshold(histogram, luminance.length) + variant.shift));
+
+    for (let sourceIndex = 0, luminanceIndex = 0; sourceIndex < data.length; sourceIndex += 4, luminanceIndex += 1) {
+      const value = luminance[luminanceIndex] >= threshold ? 255 : 0;
+      data[sourceIndex] = value;
+      data[sourceIndex + 1] = value;
+      data[sourceIndex + 2] = value;
+    }
+
+    return output;
+  }
+
+  return output;
+}
+
+function detectWithJsQr(imageData) {
+  return window.jsQR(imageData.data, imageData.width, imageData.height, {
+    inversionAttempts: "attemptBoth",
+  });
+}
+
+async function detectWithBarcodeDetector(canvas) {
+  if (!("BarcodeDetector" in window)) {
+    return null;
+  }
+
+  try {
+    const detector = new window.BarcodeDetector({ formats: ["qr_code"] });
+    const results = await detector.detect(canvas);
+    return results.find((result) => result.rawValue)?.rawValue ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function extractQrFromImage(image) {
+  const baseCanvas = createBaseCanvas(image);
+
+  for (const angle of SCAN_ANGLES) {
+    const rotatedCanvas = rotateCanvas(baseCanvas, angle);
+    const nativeResult = await detectWithBarcodeDetector(rotatedCanvas);
+    if (nativeResult) {
+      return {
+        data: nativeResult,
+        strategy: angle === 0 ? "native detector" : `native detector at ${angle}deg`,
+      };
+    }
+
+    const baseImageData = getCanvasImageData(rotatedCanvas);
+
+    for (const variant of SCAN_VARIANTS) {
+      const candidateImageData = applyVariant(baseImageData, variant);
+      const result = detectWithJsQr(candidateImageData);
+
+      if (result?.data) {
+        const angleLabel = angle === 0 ? "" : ` at ${angle}deg`;
+        return {
+          data: result.data,
+          strategy: `jsQR ${variant.name}${angleLabel}`,
+        };
+      }
+    }
+  }
+
+  throw new Error(
+    "No readable QR code was found. Try a tighter crop, less glare, or a straighter photo for codes with heavy center logos."
+  );
 }
 
 function escapeXml(value) {
@@ -220,15 +405,13 @@ async function downloadPng() {
 
   try {
     const image = await loadImage(svgUrl);
-    const canvas = document.createElement("canvas");
+    const canvas = createCanvas(size, size);
     const context = canvas.getContext("2d");
 
     if (!context) {
       throw new Error("Canvas is unavailable in this browser.");
     }
 
-    canvas.width = size;
-    canvas.height = size;
     context.drawImage(image, 0, 0, size, size);
 
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
@@ -251,7 +434,7 @@ async function handleFileSelection(event) {
   }
 
   try {
-    setStatus("Loading image and scanning for QR data...");
+    setStatus("Loading image and trying multiple QR scan passes...");
     await waitForQrLibraries();
     const dataUrl = await readFileAsDataUrl(file);
     sourcePreview.src = dataUrl;
@@ -259,11 +442,11 @@ async function handleFileSelection(event) {
     sourcePlaceholder.hidden = true;
 
     const image = await loadImage(dataUrl);
-    const payload = extractQrFromImage(image);
+    const decoded = await extractQrFromImage(image);
 
-    payloadInput.value = payload;
+    payloadInput.value = decoded.data;
     renderVector();
-    setStatus("QR detected successfully. You can edit the payload or styling now.", "success");
+    setStatus(`QR detected successfully via ${decoded.strategy}.`, "success");
   } catch (error) {
     payloadInput.value = "";
     currentSvgMarkup = "";
@@ -293,12 +476,19 @@ async function copyPayload() {
 }
 
 function bindLivePreview() {
-  [payloadInput, eccSelect, sizeInput, marginInput, shapeSelect, fgColorInput, bgColorInput, transparentInput].forEach(
-    (element) => {
-      element.addEventListener("input", renderVector);
-      element.addEventListener("change", renderVector);
-    }
-  );
+  [
+    payloadInput,
+    eccSelect,
+    sizeInput,
+    marginInput,
+    shapeSelect,
+    fgColorInput,
+    bgColorInput,
+    transparentInput,
+  ].forEach((element) => {
+    element.addEventListener("input", renderVector);
+    element.addEventListener("change", renderVector);
+  });
 }
 
 fileInput.addEventListener("change", handleFileSelection);
