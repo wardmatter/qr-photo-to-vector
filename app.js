@@ -297,13 +297,13 @@ function buildSvgMarkup(payload, options) {
 
   const modules = qr.getModuleCount();
   const totalModules = modules + options.margin * 2;
-  const cellSize = options.size / totalModules;
-  const radius = options.shape === "rounded" ? Math.max(cellSize * 0.32, 1.8) : 0;
+  const radius = options.shape === "rounded" ? 0.22 : 0;
   const bgFill = options.transparent ? "none" : options.background;
+  const shapeRendering = options.shape === "square" ? ' shape-rendering="crispEdges"' : "";
   const parts = [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${options.size}" height="${options.size}" viewBox="0 0 ${options.size} ${options.size}" role="img" aria-label="Regenerated QR code">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${options.size}" height="${options.size}" viewBox="0 0 ${totalModules} ${totalModules}" role="img" aria-label="Regenerated QR code"${shapeRendering}>`,
     `<title>${escapeXml(payload)}</title>`,
-    `<rect width="${options.size}" height="${options.size}" fill="${bgFill}"/>`,
+    `<rect width="${totalModules}" height="${totalModules}" fill="${bgFill}"/>`,
   ];
 
   for (let row = 0; row < modules; row += 1) {
@@ -312,10 +312,10 @@ function buildSvgMarkup(payload, options) {
         continue;
       }
 
-      const x = (col + options.margin) * cellSize;
-      const y = (row + options.margin) * cellSize;
+      const x = col + options.margin;
+      const y = row + options.margin;
       parts.push(
-        `<rect x="${x}" y="${y}" width="${cellSize}" height="${cellSize}" rx="${radius}" ry="${radius}" fill="${options.foreground}"/>`
+        `<rect x="${x}" y="${y}" width="1" height="1" rx="${radius}" ry="${radius}" fill="${options.foreground}"/>`
       );
     }
   }
