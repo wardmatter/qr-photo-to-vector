@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QR Photo to Vector</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" defer></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"
+      defer
+    ></script>
+    <script src="./app.js" defer></script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <p class="eyebrow">Static QR Repair Studio</p>
+        <h1>Turn noisy phone photos into a clean vector QR code.</h1>
+        <p class="hero-copy">
+          Upload a photo, extract the QR payload, tweak the output, then export
+          a crisp SVG or PNG.
+        </p>
+      </header>
+
+      <main class="workspace">
+        <section class="panel source-panel">
+          <div class="panel-heading">
+            <h2>1. Upload Photo</h2>
+            <p>Works with screenshots and camera photos from your device.</p>
+          </div>
+
+          <label class="upload-card" for="fileInput">
+            <input id="fileInput" type="file" accept="image/*" />
+            <span class="upload-title">Choose an image</span>
+            <span class="upload-copy"
+              >JPG, PNG, WEBP, HEIC-converted exports, and most browser-readable
+              image types.</span
+            >
+          </label>
+
+          <div class="preview-frame">
+            <img
+              id="sourcePreview"
+              alt="Uploaded QR source preview"
+              hidden
+            />
+            <div id="sourcePlaceholder" class="placeholder">
+              Your uploaded image preview will appear here.
+            </div>
+          </div>
+
+          <div id="statusBanner" class="status-banner">
+            Select a photo to begin decoding.
+          </div>
+        </section>
+
+        <section class="panel controls-panel">
+          <div class="panel-heading">
+            <h2>2. Confirm Payload</h2>
+            <p>You can edit the decoded text before regenerating the QR.</p>
+          </div>
+
+          <label class="field">
+            <span>QR text / URL / raw payload</span>
+            <textarea
+              id="payloadInput"
+              rows="7"
+              placeholder="Decoded QR content will appear here."
+            ></textarea>
+          </label>
+
+          <div class="grid two-up">
+            <label class="field">
+              <span>Error correction</span>
+              <select id="eccSelect">
+                <option value="L">L · Smallest</option>
+                <option value="M" selected>M · Balanced</option>
+                <option value="Q">Q · Safer</option>
+                <option value="H">H · Strongest</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Output size</span>
+              <input id="sizeInput" type="number" min="128" max="2048" step="32" value="512" />
+            </label>
+          </div>
+
+          <div class="grid two-up">
+            <label class="field">
+              <span>Quiet zone</span>
+              <input id="marginInput" type="number" min="0" max="16" step="1" value="4" />
+            </label>
+
+            <label class="field">
+              <span>Module shape</span>
+              <select id="shapeSelect">
+                <option value="square" selected>Square</option>
+                <option value="rounded">Rounded</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="grid two-up">
+            <label class="field">
+              <span>Foreground</span>
+              <input id="fgColorInput" type="color" value="#111111" />
+            </label>
+
+            <label class="field">
+              <span>Background</span>
+              <input id="bgColorInput" type="color" value="#f7f3ea" />
+            </label>
+          </div>
+
+          <label class="toggle">
+            <input id="transparentInput" type="checkbox" />
+            <span>Transparent background</span>
+          </label>
+
+          <div class="actions">
+            <button id="renderButton" type="button">Regenerate QR</button>
+            <button id="copyButton" type="button" class="secondary">Copy payload</button>
+          </div>
+        </section>
+
+        <section class="panel output-panel">
+          <div class="panel-heading">
+            <h2>3. Export Vector</h2>
+            <p>Preview updates instantly once a valid payload is available.</p>
+          </div>
+
+          <div class="vector-stage">
+            <div id="vectorPreview" class="vector-preview placeholder">
+              Your clean vector QR will render here.
+            </div>
+          </div>
+
+          <div class="actions export-actions">
+            <button id="downloadSvgButton" type="button">Download SVG</button>
+            <button id="downloadPngButton" type="button" class="secondary">
+              Download PNG
+            </button>
+          </div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>
